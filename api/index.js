@@ -30,30 +30,42 @@ async function getDB() {
   return db;
 }
 
-// ✅ Health check (Vercel /api -> Express "/")
-app.get("/", (req, res) => {
-  res.json({ ok: true, name: "Import Export Hub API" });
-});
-
-// ✅ Products list (Vercel /api/products -> Express "/products")
-app.get("/products", async (req, res) => {
+// ---------- helpers ----------
+async function getProducts(req) {
   const database = await getDB();
   const search = (req.query.search || "").trim();
+  const query = search ? { name: { $regex: search, $options: "i" } } : {};
 
-  const query = search
-    ? { name: { $regex: search, $options: "i" } }
-    : {};
-
-  const products = await database
+  return database
     .collection("products")
     .find(query)
     .sort({ createdAt: -1 })
     .toArray();
+}
 
+// ✅ root health
+app.get("/", (req, res) => {
+  res.json({ ok: true, name: "Import Export Hub API" });
+});
+
+// ✅ /api health alias
+app.get("/api", (req, res) => {
+  res.json({ ok: true, name: "Import Export Hub API" });
+});
+
+// ✅ products (root)
+app.get("/products", async (req, res) => {
+  const products = await getProducts(req);
   res.json(products);
 });
 
-// ✅ Fallback
+// ✅ products (api alias)
+app.get("/api/products", async (req, res) => {
+  const products = await getProducts(req);
+  res.json(products);
+});
+
+// fallback
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });
 });
