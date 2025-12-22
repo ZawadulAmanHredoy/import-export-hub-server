@@ -13,8 +13,8 @@ if (!admin.apps.length) {
     credential: admin.credential.cert({
       projectId: process.env.FB_PROJECT_ID,
       clientEmail: process.env.FB_CLIENT_EMAIL,
-      privateKey: process.env.FB_PRIVATE_KEY.replace(/\\n/g, "\n")
-    })
+      privateKey: process.env.FB_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    }),
   });
 }
 
@@ -30,13 +30,13 @@ async function getDB() {
   return db;
 }
 
-// ✅ Health check under /api
-app.get("/api", (req, res) => {
+// ✅ Health check (Vercel /api -> Express "/")
+app.get("/", (req, res) => {
   res.json({ ok: true, name: "Import Export Hub API" });
 });
 
-// ✅ Products list under /api/products (supports ?search=)
-app.get("/api/products", async (req, res) => {
+// ✅ Products list (Vercel /api/products -> Express "/products")
+app.get("/products", async (req, res) => {
   const database = await getDB();
   const search = (req.query.search || "").trim();
 
