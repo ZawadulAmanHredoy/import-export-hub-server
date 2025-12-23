@@ -1,24 +1,9 @@
 {
   "version": 2,
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/src/index.js"
-    }
+  "builds": [
+    { "src": "api/index.js", "use": "@vercel/node" }
   ],
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "Cross-Origin-Opener-Policy",
-          "value": "same-origin-allow-popups"
-        },
-        {
-          "key": "Cross-Origin-Embedder-Policy",
-          "value": "require-corp"
-        }
-      ]
-    }
+  "routes": [
+    { "src": "/(.*)", "dest": "api/index.js" }
   ]
 }
