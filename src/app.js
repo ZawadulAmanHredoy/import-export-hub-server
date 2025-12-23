@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import morgan from "morgan";
 
 import connectDB from "./lib/db.js";
 
@@ -11,8 +10,7 @@ const app = express();
 
 /**
  * Serverless-safe DB connection:
- * - In Vercel, there is no single long-lived process guarantee.
- * - We connect lazily and cache the promise in global scope.
+ * - In Vercel, process may spin up/down, so we connect lazily and cache the promise.
  */
 let dbReadyPromise = null;
 async function ensureDb() {
@@ -31,11 +29,7 @@ async function ensureDb() {
 function isAllowedOrigin(origin) {
   if (!origin) return true; // allow server-to-server / curl with no origin
 
-  const allowedExact = new Set([
-    "http://localhost:5173",
-    "http://localhost:3000"
-  ]);
-
+  const allowedExact = new Set(["http://localhost:5173", "http://localhost:3000"]);
   if (process.env.CLIENT_ORIGIN) allowedExact.add(process.env.CLIENT_ORIGIN);
 
   if (allowedExact.has(origin)) return true;
@@ -44,7 +38,6 @@ function isAllowedOrigin(origin) {
   try {
     const { hostname, protocol } = new URL(origin);
     if (protocol !== "http:" && protocol !== "https:") return false;
-
     if (hostname.endsWith(".web.app")) return true;
     if (hostname.endsWith(".firebaseapp.com")) return true;
     return false;
@@ -61,16 +54,13 @@ app.use(
     },
     credentials: false,
     allowedHeaders: ["Content-Type", "Authorization"],
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   })
 );
 
 app.use(express.json({ limit: "2mb" }));
-app.use(morgan("dev"));
 
-/**
- * Ensure DB before handling routes
- */
+// Ensure DB before handling routes
 app.use(async (req, res, next) => {
   try {
     await ensureDb();
