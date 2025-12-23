@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 
-import connectDB from "./lib/db.js";
+import { connectDB } from "./lib/db.js";
 
 import productsRouter from "./routes/products.js";
 import importsRouter from "./routes/imports.js";
@@ -10,7 +10,7 @@ const app = express();
 
 /**
  * Serverless-safe DB connection:
- * - In Vercel, process may spin up/down, so we connect lazily and cache the promise.
+ * - In Vercel, the function may spin up/down, so we connect lazily and cache the promise.
  */
 let dbReadyPromise = null;
 async function ensureDb() {
