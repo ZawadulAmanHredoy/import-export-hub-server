@@ -2,15 +2,14 @@ import express from "express";
 import cors from "cors";
 
 import { connectDB } from "./lib/db.js";
-
-import productsRouter from "./routes/products.js";
-import importsRouter from "./routes/imports.js";
+import { productsRouter } from "./routes/products.js";
+import { importsRouter } from "./routes/imports.js";
 
 const app = express();
 
 /**
  * Serverless-safe DB connection:
- * - In Vercel, the function may spin up/down, so we connect lazily and cache the promise.
+ * Vercel functions can be reused, so cache the promise.
  */
 let dbReadyPromise = null;
 async function ensureDb() {
@@ -27,14 +26,13 @@ async function ensureDb() {
  * - allow explicit CLIENT_ORIGIN if provided
  */
 function isAllowedOrigin(origin) {
-  if (!origin) return true; // allow server-to-server / curl with no origin
+  if (!origin) return true;
 
   const allowedExact = new Set(["http://localhost:5173", "http://localhost:3000"]);
   if (process.env.CLIENT_ORIGIN) allowedExact.add(process.env.CLIENT_ORIGIN);
 
   if (allowedExact.has(origin)) return true;
 
-  // Firebase hosting domains
   try {
     const { hostname, protocol } = new URL(origin);
     if (protocol !== "http:" && protocol !== "https:") return false;
@@ -60,7 +58,7 @@ app.use(
 
 app.use(express.json({ limit: "2mb" }));
 
-// Ensure DB before handling routes
+// Ensure DB before routes
 app.use(async (req, res, next) => {
   try {
     await ensureDb();
