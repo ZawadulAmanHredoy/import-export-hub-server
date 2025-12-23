@@ -5,105 +5,218 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 
 export const productsRouter = Router();
 
-// GET /products?limit=6&sort=latest OR /products?search=tea
+/**
+ * Helpers
+ */
+function toNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function normalizeString(v) {
+  if (typeof v !== "string") return "";
+  return v.trim();
+}
+
+/**
+ * PUBLIC: Get all products
+ * Supports: ?limit= & ?search=
+ */
 productsRouter.get("/", async (req, res) => {
-  const db = getDB();
-  const limit = Number(req.query.limit || 0);
-  const sort = req.query.sort === "latest" ? { createdAt: -1 } : { createdAt: -1 };
-  const search = (req.query.search || "").trim();
+  try {
+    const db = getDB();
+    const col = db.collection("products");
 
-  const filter = search
-    ? { name: { $regex: search, $options: "i" } }
-    : {};
+    const limitRaw = req.query.limit;
+    const limit = limitRaw ? Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200) : 50;
 
-  const cursor = db.collection("products").find(filter).sort(sort);
-  if (limit > 0) cursor.limit(limit);
+    const search = normalizeString(req.query.search);
+    const filter = search
+      ? { name: { $regex: search, $options: "i" } }
+      : {};
 
-  const items = await cursor.toArray();
-  res.json(items);
-});
+    const items = await col
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .toArray();
 
-// GET /products/my (private) - exports created by user
-productsRouter.get("/my", requireAuth, async (req, res) => {
-  const db = getDB();
-  const items = await db
-    .collection("products")
-    .find({ ownerUid: req.user.uid })
-    .sort({ createdAt: -1 })
-    .toArray();
-
-  res.json(items);
-});
-
-// GET /products/:id
-productsRouter.get("/:id", async (req, res) => {
-  const db = getDB();
-  const id = req.params.id;
-
-  const item = await db.collection("products").findOne({ _id: new ObjectId(id) });
-  if (!item) return res.status(404).json({ message: "Not found" });
-
-  res.json(item);
-});
-
-// POST /products (private) - add export/product
-productsRouter.post("/", requireAuth, async (req, res) => {
-  const db = getDB();
-  const { name, imageUrl, price, originCountry, rating, availableQty } = req.body || {};
-
-  if (!name || !imageUrl || !originCountry) {
-    return res.status(400).json({ message: "Missing required fields" });
+    res.json(items);
+  } catch (e) {
+    console.error("GET /products error:", e);
+    res.status(500).json({ message: "Failed to fetch products" });
   }
-
-  const doc = {
-    name,
-    imageUrl,
-    price: Number(price),
-    originCountry,
-    rating: Number(rating),
-    availableQty: Number(availableQty),
-    ownerUid: req.user.uid,
-    createdAt: new Date()
-  };
-
-  const result = await db.collection("products").insertOne(doc);
-  res.status(201).json({ _id: result.insertedId, ...doc });
 });
 
-// PUT /products/:id (private) - update export/product
+/**
+ * PUBLIC: Get product by id
+ */
+productsRouter.get("/:id", async (req, res) => {
+  try {
+    const db = getDB();
+    const col = db.collection("products");
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid product id" });
+
+    const item = await col.findOne({ _id: new ObjectId(id) });
+    if (!item) return res.status(404).json({ message: "Product not found" });
+
+    res.json(item);
+  } catch (e) {
+    console.error("GET /products/:id error:", e);
+    res.status(500).json({ message: "Failed to fetch product" });
+  }
+});
+
+/**
+ * PRIVATE: Get my products
+ */
+productsRouter.get("/my", requireAuth, async (req, res) => {
+  try {
+    const db = getDB();
+    const col = db.collection("products");
+
+    const ownerUid = req.user?.uid;
+    const items = await col
+      .find({ ownerUid })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json(items);
+  } catch (e) {
+    console.error("GET /products/my error:", e);
+    res.status(500).json({ message: "Failed to fetch your products" });
+  }
+});
+
+/**
+ * PRIVATE: Create product
+ *
+ * ✅ Now only requires: name, price, availableQty
+ * Optional: imageUrl, originCountry, rating
+ *
+ * This fixes your client form not sending extra fields.
+ */
+productsRouter.post("/", requireAuth, async (req, res) => {
+  try {
+    const db = getDB();
+    const col = db.collection("products");
+
+    const name = normalizeString(req.body?.name);
+    const price = toNumber(req.body?.price);
+    const availableQty = toNumber(req.body?.availableQty);
+
+    // Minimum validation
+    if (!name) {
+      return res.status(400).json({ message: "Missing required fields: name" });
+    }
+    if (!Number.isFinite(price)) {
+      return res.status(400).json({ message: "Missing required fields: price" });
+    }
+    if (!Number.isFinite(availableQty)) {
+      return res.status(400).json({ message: "Missing required fields: availableQty" });
+    }
+
+    // Optional fields with safe defaults
+    const imageUrl = normalizeString(req.body?.imageUrl) || "";
+    const originCountry = normalizeString(req.body?.originCountry) || "";
+    const ratingRaw = req.body?.rating;
+    const rating = Number.isFinite(toNumber(ratingRaw)) ? toNumber(ratingRaw) : 0;
+
+    const doc = {
+      name,
+      imageUrl,
+      originCountry,
+      rating,
+      price,
+      availableQty,
+      ownerUid: req.user.uid,
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = await col.insertOne(doc);
+
+    // Return in the exact shape your client expects
+    res.status(201).json({ _id: result.insertedId, ...doc });
+  } catch (e) {
+    console.error("POST /products error:", e);
+    res.status(500).json({ message: "Failed to create product" });
+  }
+});
+
+/**
+ * PRIVATE: Update product (owner only)
+ */
 productsRouter.put("/:id", requireAuth, async (req, res) => {
-  const db = getDB();
-  const id = req.params.id;
+  try {
+    const db = getDB();
+    const col = db.collection("products");
 
-  const existing = await db.collection("products").findOne({ _id: new ObjectId(id) });
-  if (!existing) return res.status(404).json({ message: "Not found" });
-  if (existing.ownerUid !== req.user.uid) return res.status(403).json({ message: "Forbidden" });
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid product id" });
 
-  const { name, imageUrl, price, originCountry, rating, availableQty } = req.body || {};
+    const existing = await col.findOne({ _id: new ObjectId(id) });
+    if (!existing) return res.status(404).json({ message: "Product not found" });
 
-  const update = {
-    ...(name ? { name } : {}),
-    ...(imageUrl ? { imageUrl } : {}),
-    ...(originCountry ? { originCountry } : {}),
-    ...(price !== undefined ? { price: Number(price) } : {}),
-    ...(rating !== undefined ? { rating: Number(rating) } : {}),
-    ...(availableQty !== undefined ? { availableQty: Number(availableQty) } : {})
-  };
+    if (existing.ownerUid !== req.user.uid) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
 
-  await db.collection("products").updateOne({ _id: new ObjectId(id) }, { $set: update });
-  const updated = await db.collection("products").findOne({ _id: new ObjectId(id) });
-  res.json(updated);
+    const update = {};
+    if (req.body?.name !== undefined) update.name = normalizeString(req.body.name);
+    if (req.body?.imageUrl !== undefined) update.imageUrl = normalizeString(req.body.imageUrl);
+    if (req.body?.originCountry !== undefined) update.originCountry = normalizeString(req.body.originCountry);
+
+    if (req.body?.rating !== undefined) {
+      const r = toNumber(req.body.rating);
+      if (Number.isFinite(r)) update.rating = r;
+    }
+
+    if (req.body?.price !== undefined) {
+      const p = toNumber(req.body.price);
+      if (Number.isFinite(p)) update.price = p;
+    }
+
+    if (req.body?.availableQty !== undefined) {
+      const q = toNumber(req.body.availableQty);
+      if (Number.isFinite(q)) update.availableQty = q;
+    }
+
+    const result = await col.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: update }
+    );
+
+    res.json({ ok: true, modifiedCount: result.modifiedCount });
+  } catch (e) {
+    console.error("PUT /products/:id error:", e);
+    res.status(500).json({ message: "Failed to update product" });
+  }
 });
 
-// DELETE /products/:id (private)
+/**
+ * PRIVATE: Delete product (owner only)
+ */
 productsRouter.delete("/:id", requireAuth, async (req, res) => {
-  const db = getDB();
-  const id = req.params.id;
+  try {
+    const db = getDB();
+    const col = db.collection("products");
 
-  const existing = await db.collection("products").findOne({ _id: new ObjectId(id) });
-  if (!existing) return res.status(404).json({ message: "Not found" });
-  if (existing.ownerUid !== req.user.uid) return res.status(403).json({ message: "Forbidden" });
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid product id" });
 
-  await db.collection("products").deleteOne({ _id: new ObjectId(id) });
-  res.json({ ok: true });
+    const existing = await col.findOne({ _id: new ObjectId(id) });
+    if (!existing) return res.status(404).json({ message: "Product not found" });
+
+    if (existing.ownerUid !== req.user.uid) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const result = await col.deleteOne({ _id: new ObjectId(id) });
+    res.json({ ok: true, deletedCount: result.deletedCount });
+  } catch (e) {
+    console.error("DELETE /products/:id error:", e);
+    res.status(500).json({ message: "Failed to delete product" });
+  }
 });
