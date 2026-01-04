@@ -5,35 +5,29 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 
 export const productsRouter = Router();
 
-/**
- * Helpers
- */
+/** Helpers */
 function toNumber(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : NaN;
 }
-
 function normalizeString(v) {
   if (typeof v !== "string") return "";
   return v.trim();
 }
 
-/**
- * PUBLIC: Get all products
- * Supports: ?limit= & ?search=
- */
+/** PUBLIC: Get all products (?limit= & ?search=) */
 productsRouter.get("/", async (req, res) => {
   try {
     const db = getDB();
     const col = db.collection("products");
 
     const limitRaw = req.query.limit;
-    const limit = limitRaw ? Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200) : 50;
+    const limit = limitRaw
+      ? Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200)
+      : 50;
 
     const search = normalizeString(req.query.search);
-    const filter = search
-      ? { name: { $regex: search, $options: "i" } }
-      : {};
+    const filter = search ? { name: { $regex: search, $options: "i" } } : {};
 
     const items = await col
       .find(filter)
@@ -48,30 +42,7 @@ productsRouter.get("/", async (req, res) => {
   }
 });
 
-/**
- * PUBLIC: Get product by id
- */
-productsRouter.get("/:id", async (req, res) => {
-  try {
-    const db = getDB();
-    const col = db.collection("products");
-
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid product id" });
-
-    const item = await col.findOne({ _id: new ObjectId(id) });
-    if (!item) return res.status(404).json({ message: "Product not found" });
-
-    res.json(item);
-  } catch (e) {
-    console.error("GET /products/:id error:", e);
-    res.status(500).json({ message: "Failed to fetch product" });
-  }
-});
-
-/**
- * PRIVATE: Get my products
- */
+/** PRIVATE: Get my products (MUST be before "/:id") */
 productsRouter.get("/my", requireAuth, async (req, res) => {
   try {
     const db = getDB();
@@ -90,14 +61,28 @@ productsRouter.get("/my", requireAuth, async (req, res) => {
   }
 });
 
-/**
- * PRIVATE: Create product
- *
- * ✅ Now only requires: name, price, availableQty
- * Optional: imageUrl, originCountry, rating
- *
- * This fixes your client form not sending extra fields.
- */
+/** PUBLIC: Get product by id */
+productsRouter.get("/:id", async (req, res) => {
+  try {
+    const db = getDB();
+    const col = db.collection("products");
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid product id" });
+    }
+
+    const item = await col.findOne({ _id: new ObjectId(id) });
+    if (!item) return res.status(404).json({ message: "Product not found" });
+
+    res.json(item);
+  } catch (e) {
+    console.error("GET /products/:id error:", e);
+    res.status(500).json({ message: "Failed to fetch product" });
+  }
+});
+
+/** PRIVATE: Create product */
 productsRouter.post("/", requireAuth, async (req, res) => {
   try {
     const db = getDB();
@@ -107,18 +92,10 @@ productsRouter.post("/", requireAuth, async (req, res) => {
     const price = toNumber(req.body?.price);
     const availableQty = toNumber(req.body?.availableQty);
 
-    // Minimum validation
-    if (!name) {
-      return res.status(400).json({ message: "Missing required fields: name" });
-    }
-    if (!Number.isFinite(price)) {
-      return res.status(400).json({ message: "Missing required fields: price" });
-    }
-    if (!Number.isFinite(availableQty)) {
-      return res.status(400).json({ message: "Missing required fields: availableQty" });
-    }
+    if (!name) return res.status(400).json({ message: "Missing required fields: name" });
+    if (!Number.isFinite(price)) return res.status(400).json({ message: "Missing required fields: price" });
+    if (!Number.isFinite(availableQty)) return res.status(400).json({ message: "Missing required fields: availableQty" });
 
-    // Optional fields with safe defaults
     const imageUrl = normalizeString(req.body?.imageUrl) || "";
     const originCountry = normalizeString(req.body?.originCountry) || "";
     const ratingRaw = req.body?.rating;
@@ -136,8 +113,6 @@ productsRouter.post("/", requireAuth, async (req, res) => {
     };
 
     const result = await col.insertOne(doc);
-
-    // Return in the exact shape your client expects
     res.status(201).json({ _id: result.insertedId, ...doc });
   } catch (e) {
     console.error("POST /products error:", e);
@@ -145,9 +120,7 @@ productsRouter.post("/", requireAuth, async (req, res) => {
   }
 });
 
-/**
- * PRIVATE: Update product (owner only)
- */
+/** PRIVATE: Update product (owner only) */
 productsRouter.put("/:id", requireAuth, async (req, res) => {
   try {
     const db = getDB();
@@ -183,11 +156,7 @@ productsRouter.put("/:id", requireAuth, async (req, res) => {
       if (Number.isFinite(q)) update.availableQty = q;
     }
 
-    const result = await col.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: update }
-    );
-
+    const result = await col.updateOne({ _id: new ObjectId(id) }, { $set: update });
     res.json({ ok: true, modifiedCount: result.modifiedCount });
   } catch (e) {
     console.error("PUT /products/:id error:", e);
@@ -195,9 +164,7 @@ productsRouter.put("/:id", requireAuth, async (req, res) => {
   }
 });
 
-/**
- * PRIVATE: Delete product (owner only)
- */
+/** PRIVATE: Delete product (owner only) */
 productsRouter.delete("/:id", requireAuth, async (req, res) => {
   try {
     const db = getDB();
